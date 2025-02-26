@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>简易聊天</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-height: 800px;
+        }
+        .header {
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px 5px 0 0;
+        }
+        #messages {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 5px;
+            max-width: 80%;
+        }
+        .message.self {
+            background-color: #dcf8c6;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+        .message.other {
+            background-color: #ffffff;
+            align-self: flex-start;
+            border: 1px solid #e0e0e0;
+        }
+        .sender {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .time {
+            font-size: 0.8em;
+            color: #888;
+            margin-top: 5px;
+            text-align: right;
+        }
+        .input-area {
+            display: flex;
+            margin-top: 10px;
+        }
+        #messageInput {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .user-info {
+            margin-bottom: 20px;
+        }
+        #username {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 200px;
+        }
+        .status {
+            color: #888;
+            font-style: italic;
+            text-align: center;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>简易聊天</h1>
+            <div class="user-info">
+                <label for="username">你的名字：</label>
+                <input type="text" id="username" placeholder="输入你的名字">
+            </div>
+        </div>
+        
+        <div id="messages"></div>
+        
+        <div class="input-area">
+            <input type="text" id="messageInput" placeholder="输入消息">
+            <button onclick="sendMessage()">发送</button>
+        </div>
+    </div>
+    
+    <script>
+        // 获取当前主机地址
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
+        
+        let ws = new WebSocket(wsUrl);
+        let messagesDiv = document.getElementById('messages');
+        let messageInput = document.getElementById('messageInput');
+        let usernameInput = document.getElementById('username');
+        
+        // 从本地存储加载用户名
+        if (localStorage.getItem('chatUsername')) {
+            usernameInput.value = localStorage.getItem('chatUsername');
+        }
+        
+        // 保存用户名到本地存储
+        usernameInput.addEventListener('change', function() {
+            localStorage.setItem('chatUsername', this.value);
+        });
+        
+        // 连接建立时
+        ws.onopen = function() {
+            addStatusMessage('已连接到聊天服务器');
+        };
+        
+        // 连接关闭时
+        ws.onclose = function() {
+            addStatusMessage('与服务器的连接已断开，请刷新页面重试');
+        };
+        
+        // 连接错误时
+        ws.onerror = function() {
+            addStatusMessage('连接错误，请刷新页面重试');
+        };
+        
+        // 收到消息时
+        ws.onmessage = function(event) {
+            let data = JSON.parse(event.data);
+            addMessageToChat(data);
+        };
+        
+        // 添加消息到聊天区域
+        function addMessageToChat(data) {
+            let messageElement = document.createElement('div');
+            let currentUsername = usernameInput.value || '匿名';
+            
+            // 判断是自己的消息还是他人的消息
+            if (data.sender === currentUsername) {
+                messageElement.className = 'message self';
+            } else {
+                messageElement.className = 'message other';
+            }
+            
+            // 发送者名称
+            let senderElement = document.createElement('div');
+            senderElement.className = 'sender';
+            senderElement.textContent = data.sender;
+            
+            // 消息内容
+            let contentElement = document.createElement('div');
+            contentElement.textContent = data.content;
+            
+            // 时间
+            let timeElement = document.createElement('div');
+            timeElement.className = 'time';
+            
+            // 如果有时间戳，则显示时间
+            if (data.created_at) {
+                let date = new Date(data.created_at);
+                timeElement.textContent = formatTime(date);
+            } else {
+                let date = new Date();
+                timeElement.textContent = formatTime(date);
+            }
+            
+            // 组装消息
+            messageElement.appendChild(senderElement);
+            messageElement.appendChild(contentElement);
+            messageElement.appendChild(timeElement);
+            
+            // 添加到聊天区域
+            messagesDiv.appendChild(messageElement);
+            
+            // 滚动到底部
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        // 添加状态消息
+        function addStatusMessage(text) {
+            let statusElement = document.createElement('div');
+            statusElement.className = 'status';
+            statusElement.textContent = text;
+            messagesDiv.appendChild(statusElement);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        // 格式化时间
+        function formatTime(date) {
+            let hours = date.getHours().toString().padStart(2, '0');
+            let minutes = date.getMinutes().toString().padStart(2, '0');
+            return `${hours}:${minutes}`;
+        }
+        
+        // 发送消息
+        function sendMessage() {
+            let username = usernameInput.value.trim() || '匿名';
+            let content = messageInput.value.trim();
+            
+            if (content !== '') {
+                let message = {
+                    sender: username,
+                    content: content
+                };
+                
+                ws.send(JSON.stringify(message));
+                messageInput.value = '';
+            }
+        }
+        
+        // 按Enter键发送消息
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        
+        // 自动聚焦到消息输入框
+        messageInput.focus();
+    </script>
+</body>
+</html> 
