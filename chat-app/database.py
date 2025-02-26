@@ -39,9 +39,9 @@ class Message(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     content = Column(String)
-    sender = Column(String)  # 保留临时用户名字段，用于兼容
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 关联用户ID，可为空（兼容未登录用户）
+    sender = Column(String)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
     # 关系：一条消息属于一个用户
     user = relationship("User", back_populates="messages")

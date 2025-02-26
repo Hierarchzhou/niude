@@ -179,7 +179,17 @@
         
         // 获取当前主机地址
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
+        // 添加会话ID到WebSocket URL
+        const getCookie = (name) => {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return null;
+        };
+        const sessionId = getCookie('session_id');
+        const wsUrl = `${protocol}//${window.location.host}/ws/chat${sessionId ? '?session_id=' + sessionId : ''}`;
+        
+        console.log('正在连接WebSocket:', wsUrl);
         
         let ws = null;
         let messagesDiv = document.getElementById('messages');
@@ -240,39 +250,63 @@
         
         // 连接WebSocket
         function connectWebSocket() {
+            console.log('尝试连接WebSocket...');
+            
+            // 如果已经有连接，先关闭
+            if (ws) {
+                try {
+                    ws.close();
+                } catch (e) {
+                    console.error('关闭旧连接错误:', e);
+                }
+            }
+            
             ws = new WebSocket(wsUrl);
             
             // 连接建立时
             ws.onopen = function() {
+                console.log('WebSocket连接已建立');
                 addStatusMessage('已连接到聊天服务器');
             };
             
             // 连接关闭时
-            ws.onclose = function() {
-                addStatusMessage('与服务器的连接已断开，请刷新页面重试');
+            ws.onclose = function(event) {
+                console.log('WebSocket连接已关闭', event.code, event.reason);
+                addStatusMessage('与服务器的连接已断开，正在尝试重新连接...');
+                
+                // 5秒后尝试重新连接
+                setTimeout(connectWebSocket, 5000);
             };
             
             // 连接错误时
-            ws.onerror = function() {
-                addStatusMessage('连接错误，请刷新页面重试');
+            ws.onerror = function(error) {
+                console.error('WebSocket连接错误:', error);
+                addStatusMessage('连接错误，将尝试重新连接');
             };
             
             // 收到消息时
             ws.onmessage = function(event) {
-                let data = JSON.parse(event.data);
-                addMessageToChat(data);
+                console.log('收到消息:', event.data);
+                try {
+                    let data = JSON.parse(event.data);
+                    addMessageToChat(data);
+                } catch (e) {
+                    console.error('解析消息错误:', e);
+                    addStatusMessage('收到无效消息');
+                }
             };
         }
         
         // 添加消息到聊天区域
         function addMessageToChat(data) {
             let messageElement = document.createElement('div');
+            messageElement.className = 'message';
             
-            // 判断是自己的消息还是他人的消息
-            if (currentUser && data.sender === currentUser.username) {
-                messageElement.className = 'message self';
+            // 判断是否是当前用户发送的消息
+            if (data.sender === currentUser.username) {
+                messageElement.className += ' self';  // 修改为 'self' 以匹配CSS样式
             } else {
-                messageElement.className = 'message other';
+                messageElement.className += ' other';  // 添加 'other' 类名以匹配CSS样式
             }
             
             // 发送者名称
@@ -327,16 +361,50 @@
         
         // 发送消息
         function sendMessage() {
-            let content = messageInput.value.trim();
+            const content = messageInput.value.trim();
             
-            if (content !== '' && ws && currentUser) {
-                let message = {
+            if (content === '') {
+                return; // 不发送空消息
+            }
+            
+            if (!ws) {
+                console.error('WebSocket未初始化');
+                addStatusMessage('未连接到服务器，请刷新页面重试');
+                return;
+            }
+            
+            if (ws.readyState !== WebSocket.OPEN) {
+                console.error('WebSocket未连接，当前状态:', ws.readyState);
+                addStatusMessage('与服务器的连接已断开，正在尝试重新连接...');
+                // 尝试重新连接
+                connectWebSocket();
+                return;
+            }
+            
+            if (!currentUser) {
+                console.error('用户未登录');
+                addStatusMessage('您需要登录才能发送消息');
+                return;
+            }
+            
+            try {
+                const message = {
                     sender: currentUser.username,
-                    content: content
+                    content: content,
+                    created_at: new Date().toISOString()
                 };
                 
+                console.log('发送消息:', message);
+                
+                // 先在本地显示消息，提供即时反馈
+                addMessageToChat(message);
+                
+                // 然后发送到服务器
                 ws.send(JSON.stringify(message));
                 messageInput.value = '';
+            } catch (error) {
+                console.error('发送消息错误:', error);
+                addStatusMessage('发送消息失败: ' + error.message);
             }
         }
         

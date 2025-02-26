@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Request, F
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import json
 from typing import List, Dict, Optional
@@ -11,6 +12,15 @@ import datetime
 from database import get_db, Message, User
 
 app = FastAPI(title="简易聊天应用")
+
+# 添加CORS中间件
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 挂载静态文件
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -32,7 +42,8 @@ class ConnectionManager:
             self.user_connections[user_id].append(websocket)
     
     def disconnect(self, websocket: WebSocket, user_id: Optional[int] = None):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
         
         # 如果有用户ID，从用户连接列表中移除
         if user_id and user_id in self.user_connections:
@@ -42,8 +53,20 @@ class ConnectionManager:
                 del self.user_connections[user_id]
     
     async def broadcast(self, message: str):
-        for connection in self.active_connections:
-            await connection.send_text(message)
+        disconnected = []
+        for i, connection in enumerate(self.active_connections):
+            try:
+                await connection.send_text(message)
+                print(f"消息已发送到连接 {i+1}/{len(self.active_connections)}")
+            except Exception as e:
+                print(f"发送消息到连接 {i+1} 失败: {e}")
+                disconnected.append(connection)
+        
+        # 移除断开的连接
+        for conn in disconnected:
+            if conn in self.active_connections:
+                self.active_connections.remove(conn)
+                print(f"已移除断开的连接，剩余连接数: {len(self.active_connections)}")
 
 manager = ConnectionManager()
 
@@ -107,6 +130,7 @@ async def get_login():
     </body>
     </html>
     """
+
 
 # 注册页面
 @app.get("/register", response_class=HTMLResponse)
@@ -240,15 +264,20 @@ async def get_users(db: Session = Depends(get_db), user: Optional[User] = Depend
         )
     
     users = db.query(User).all()
-    return [{"id": u.id, "username": u.username} for u in users]
+    return [{"id": u.id, "username": u.username, "email": u.email} for u in users]
 
 # WebSocket端点
 @app.websocket("/ws/chat")
 async def websocket_endpoint(
     websocket: WebSocket, 
-    db: Session = Depends(get_db),
-    session_id: Optional[str] = None
+    db: Session = Depends(get_db)
 ):
+    # 获取查询参数中的会话ID
+    query_params = dict(websocket.query_params)
+    session_id = query_params.get("session_id")
+    
+    print(f"WebSocket连接请求: 会话ID = {session_id}")
+    
     # 获取用户信息（如果已登录）
     user_id = None
     username = None
@@ -258,12 +287,19 @@ async def websocket_endpoint(
         user = db.query(User).filter(User.id == user_id).first()
         if user:
             username = user.username
-    
-    await manager.connect(websocket, user_id)
+            print(f"已认证用户: {username} (ID: {user_id})")
+        else:
+            print(f"找不到用户ID: {user_id}")
+    else:
+        print(f"无效的会话ID或未登录: {session_id}")
     
     try:
+        await manager.connect(websocket, user_id)
+        print(f"WebSocket连接已建立，活跃连接数: {len(manager.active_connections)}")
+        
         # 发送历史消息
         messages = db.query(Message).order_by(Message.created_at).all()
+        print(f"发送 {len(messages)} 条历史消息")
         for msg in messages:
             sender_name = msg.sender
             if msg.user_id:
@@ -271,42 +307,69 @@ async def websocket_endpoint(
                 if user:
                     sender_name = user.username
             
-            await websocket.send_text(json.dumps({
+            message_data = {
                 "sender": sender_name,
                 "content": msg.content,
                 "created_at": msg.created_at.isoformat(),
                 "user_id": msg.user_id
-            }))
+            }
+            
+            try:
+                await websocket.send_text(json.dumps(message_data))
+            except Exception as e:
+                print(f"发送历史消息失败: {e}")
+                break
         
         while True:
             # 接收消息
-            data = await websocket.receive_text()
-            message_data = json.loads(data)
-            
-            # 保存消息到数据库
-            db_message = Message(
-                content=message_data["content"],
-                sender=message_data["sender"]
-            )
-            
-            # 如果用户已登录，关联消息与用户
-            if user_id:
-                db_message.user_id = user_id
-                # 使用用户名替代临时名称
-                if username:
-                    message_data["sender"] = username
-            
-            db.add(db_message)
-            db.commit()
-            
-            # 广播消息给所有连接的客户端
-            await manager.broadcast(json.dumps(message_data))
+            try:
+                data = await websocket.receive_text()
+                print(f"收到消息: {data[:100]}...")
+                message_data = json.loads(data)
+                
+                # 验证消息格式
+                if "content" not in message_data:
+                    print("消息缺少content字段")
+                    continue
+                
+                # 保存消息到数据库
+                try:
+                    db_message = Message(
+                        content=message_data["content"],
+                        sender=message_data.get("sender", "匿名")
+                    )
+                    
+                    # 如果用户已登录，关联消息与用户
+                    if user_id:
+                        db_message.user_id = user_id
+                        # 使用用户名替代临时名称
+                        if username:
+                            message_data["sender"] = username
+                    
+                    db.add(db_message)
+                    db.commit()
+                    print(f"消息已保存到数据库，ID: {db_message.id}")
+                except Exception as db_error:
+                    print(f"保存消息到数据库失败: {db_error}")
+                    db.rollback()
+                
+                # 广播消息给所有连接的客户端
+                print(f"广播消息给 {len(manager.active_connections)} 个连接")
+                await manager.broadcast(json.dumps(message_data))
+            except json.JSONDecodeError as json_error:
+                print(f"JSON解析错误: {json_error}")
+                continue
+            except Exception as receive_error:
+                print(f"接收消息错误: {receive_error}")
+                break
     except WebSocketDisconnect:
+        print(f"WebSocket断开连接: 用户ID = {user_id}")
         manager.disconnect(websocket, user_id)
-        await manager.broadcast(json.dumps({
-            "sender": "系统",
-            "content": "有用户断开连接"
-        }))
+        if len(manager.active_connections) > 0:
+            await manager.broadcast(json.dumps({
+                "sender": "系统",
+                "content": "有用户断开连接"
+            }))
     except Exception as e:
-        print(f"错误: {e}")
+        print(f"WebSocket错误: {e}")
         manager.disconnect(websocket, user_id) 
