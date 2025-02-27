@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>个人资料 - 简易聊天应用</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+            width: 100%;
+            max-width: 600px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"],
+        input[type="email"],
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        textarea {
+            height: 100px;
+            resize: vertical;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .avatar-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .avatar {
+            width: 150px;
+            height: 150px;
+            border-radius: 75px;
+            object-fit: cover;
+            margin-bottom: 15px;
+            border: 2px solid #ddd;
+        }
+        .links {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .links a {
+            color: #4CAF50;
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        .links a:hover {
+            text-decoration: underline;
+        }
+        .message {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .success-message {
+            background-color: #dff0d8;
+            color: #3c763d;
+            display: none;
+        }
+        .error-message {
+            background-color: #f2dede;
+            color: #a94442;
+            display: none;
+        }
+        .file-input-container {
+            position: relative;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        .file-input {
+            position: absolute;
+            left: 0;
+            top: 0;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        .file-input-label {
+            display: inline-block;
+            padding: 10px 15px;
+            background-color: #2196F3;
+            color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            text-align: center;
+        }
+        .file-input-label:hover {
+            background-color: #0b7dda;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>个人资料</h1>
+        <div id="successMessage" class="message success-message">个人资料更新成功！</div>
+        <div id="errorMessage" class="message error-message"></div>
+        
+        <form id="profileForm">
+            <div class="avatar-container">
+                <img id="avatarPreview" class="avatar" src="/static/images/default_avatar.png" alt="头像">
+                <div class="file-input-container">
+                    <label class="file-input-label" for="avatarFile">选择新头像</label>
+                    <input id="avatarFile" type="file" class="file-input" accept="image/*">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="username">用户名（不可修改）</label>
+                <input type="text" id="username" name="username" readonly>
+            </div>
+            
+            <div class="form-group">
+                <label for="displayName">显示名称</label>
+                <input type="text" id="displayName" name="display_name" placeholder="填写您希望显示的名称">
+            </div>
+            
+            <div class="form-group">
+                <label for="email">电子邮箱</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="bio">个人简介</label>
+                <textarea id="bio" name="bio" placeholder="简单介绍一下自己吧..."></textarea>
+            </div>
+            
+            <button type="submit">保存更改</button>
+        </form>
+        
+        <div class="links">
+            <a href="/chat">返回聊天</a>
+        </div>
+    </div>
+
+    <script>
+        // 获取元素
+        const profileForm = document.getElementById('profileForm');
+        const avatarFile = document.getElementById('avatarFile');
+        const avatarPreview = document.getElementById('avatarPreview');
+        const successMessage = document.getElementById('successMessage');
+        const errorMessage = document.getElementById('errorMessage');
+        
+        // 加载用户资料
+        async function loadUserProfile() {
+            try {
+                const response = await fetch('/api/users/me');
+                
+                if (response.ok) {
+                    const user = await response.json();
+                    
+                    // 填充表单
+                    document.getElementById('username').value = user.username;
+                    document.getElementById('email').value = user.email;
+                    
+                    // 填充可选字段
+                    if (user.display_name) {
+                        document.getElementById('displayName').value = user.display_name;
+                    }
+                    
+                    if (user.bio) {
+                        document.getElementById('bio').value = user.bio;
+                    }
+                    
+                    // 显示头像
+                    if (user.avatar_url) {
+                        avatarPreview.src = user.avatar_url;
+                    }
+                } else {
+                    // 未登录，重定向到登录页面
+                    window.location.href = '/login';
+                }
+            } catch (error) {
+                console.error('获取用户资料错误:', error);
+                showError('获取用户资料失败，请刷新页面重试');
+            }
+        }
+        
+        // 头像预览
+        avatarFile.addEventListener('change', function() {
+            if (this.files && this.files[0]) {
+                const reader = new FileReader();
+                
+                reader.onload = function(e) {
+                    avatarPreview.src = e.target.result;
+                };
+                
+                reader.readAsDataURL(this.files[0]);
+            }
+        });
+        
+        // 表单提交
+        profileForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            // 隐藏之前的消息
+            successMessage.style.display = 'none';
+            errorMessage.style.display = 'none';
+            
+            // 创建FormData
+            const formData = new FormData();
+            
+            // 添加表单字段
+            formData.append('display_name', document.getElementById('displayName').value);
+            formData.append('email', document.getElementById('email').value);
+            formData.append('bio', document.getElementById('bio').value);
+            
+            // 添加头像文件（如果有选择）
+            if (avatarFile.files.length > 0) {
+                formData.append('avatar', avatarFile.files[0]);
+            }
+            
+            try {
+                const response = await fetch('/api/users/profile', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    // 显示成功消息
+                    successMessage.style.display = 'block';
+                    
+                    // 3秒后隐藏
+                    setTimeout(() => {
+                        successMessage.style.display = 'none';
+                    }, 3000);
+                } else {
+                    // 显示错误消息
+                    const data = await response.json();
+                    showError(data.detail || '更新个人资料失败');
+                }
+            } catch (error) {
+                console.error('更新个人资料错误:', error);
+                showError('更新过程中发生错误，请稍后再试');
+            }
+        });
+        
+        // 显示错误消息
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+        }
+        
+        // 页面加载时获取用户资料
+        loadUserProfile();
+    </script>
+</body>
+</html> 

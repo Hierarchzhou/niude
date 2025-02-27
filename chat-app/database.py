@@ -21,6 +21,11 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     last_login = Column(DateTime, nullable=True)
     
+    # 个人资料字段
+    display_name = Column(String, nullable=True)  # 显示名称
+    avatar_url = Column(String, nullable=True, default="/static/default_avatar.png")  # 头像URL
+    bio = Column(String, nullable=True)  # 个人简介
+    
     # 关系：一个用户可以有多条消息
     messages = relationship("Message", back_populates="user")
     

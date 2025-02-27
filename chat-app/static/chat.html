@@ -31,6 +31,14 @@
             background-color: #34495e;
             border-bottom: 1px solid #455a64;
         }
+        .avatar-container {
+            margin-bottom: 10px;
+        }
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+        }
         .user-name {
             font-weight: bold;
             font-size: 18px;
@@ -39,6 +47,17 @@
         .user-email {
             font-size: 14px;
             color: #ccc;
+        }
+        .profile-link {
+            margin-top: 10px;
+        }
+        .profile-link a {
+            color: #4CAF50;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .profile-link a:hover {
+            text-decoration: underline;
         }
         .users-list {
             flex: 1;
@@ -152,8 +171,12 @@
     <div class="container">
         <div class="sidebar">
             <div class="user-info">
+                <div class="avatar-container">
+                    <img id="currentUserAvatar" class="avatar" src="/static/images/default_avatar.svg" alt="头像">
+                </div>
                 <div class="user-name" id="currentUsername">加载中...</div>
                 <div class="user-email" id="currentUserEmail"></div>
+                <div class="profile-link"><a href="/profile">编辑个人资料</a></div>
             </div>
             <div class="users-list">
                 <h3>在线用户</h3>
@@ -203,8 +226,13 @@
                 
                 if (response.ok) {
                     currentUser = await response.json();
-                    document.getElementById('currentUsername').textContent = currentUser.username;
+                    document.getElementById('currentUsername').textContent = currentUser.display_name || currentUser.username;
                     document.getElementById('currentUserEmail').textContent = currentUser.email;
+                    
+                    // 显示头像
+                    if (currentUser.avatar_url) {
+                        document.getElementById('currentUserAvatar').src = currentUser.avatar_url;
+                    }
                     
                     // 加载用户列表
                     loadUsers();

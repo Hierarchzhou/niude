@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Request, Form, Cookie, Response, HTTPException, status
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, Request, Form, Cookie, Response, HTTPException, status, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -8,6 +8,10 @@ import json
 from typing import List, Dict, Optional
 import uuid
 import datetime
+import shutil
+import os
+import random
+import string
 
 from database import get_db, Message, User
 
@@ -251,7 +255,10 @@ async def get_user_me(user: Optional[User] = Depends(get_current_user)):
         "username": user.username,
         "email": user.email,
         "created_at": user.created_at,
-        "last_login": user.last_login
+        "last_login": user.last_login,
+        "display_name": user.display_name,
+        "bio": user.bio,
+        "avatar_url": user.avatar_url
     }
 
 # 获取所有用户API
@@ -372,4 +379,89 @@ async def websocket_endpoint(
             }))
     except Exception as e:
         print(f"WebSocket错误: {e}")
-        manager.disconnect(websocket, user_id) 
+        manager.disconnect(websocket, user_id)
+
+# 个人资料页面
+@app.get("/profile", response_class=HTMLResponse)
+async def get_profile(user: Optional[User] = Depends(get_current_user)):
+    if not user:
+        return RedirectResponse(url="/login")
+    
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>个人资料 - 简易聊天应用</title>
+        <meta charset="utf-8">
+        <meta http-equiv="refresh" content="0; url=/static/profile.html">
+    </head>
+    <body>
+        <p>正在跳转到个人资料页面...</p>
+    </body>
+    </html>
+    """
+
+# 更新用户资料API
+@app.post("/api/users/profile")
+async def update_profile(
+    display_name: Optional[str] = Form(None),
+    email: str = Form(...),
+    bio: Optional[str] = Form(None),
+    avatar: Optional[UploadFile] = File(None),
+    user: Optional[User] = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未登录"
+        )
+    
+    # 检查邮箱是否已被其他用户使用
+    if email != user.email:
+        existing_email = db.query(User).filter(User.email == email, User.id != user.id).first()
+        if existing_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="该邮箱已被其他用户使用"
+            )
+    
+    # 更新基本资料
+    user.email = email
+    if display_name:
+        user.display_name = display_name
+    if bio:
+        user.bio = bio
+    
+    # 处理头像上传
+    if avatar:
+        # 确保存储目录存在
+        avatar_dir = "static/images/avatars"
+        os.makedirs(avatar_dir, exist_ok=True)
+        
+        # 生成随机文件名
+        file_extension = os.path.splitext(avatar.filename)[1]
+        random_string = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(8))
+        filename = f"avatar_{user.id}_{random_string}{file_extension}"
+        file_path = os.path.join(avatar_dir, filename)
+        
+        # 保存文件
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(avatar.file, buffer)
+        
+        # 更新用户头像URL
+        user.avatar_url = f"/static/images/avatars/{filename}"
+    
+    db.commit()
+    
+    return {
+        "message": "个人资料更新成功",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "display_name": user.display_name,
+            "bio": user.bio,
+            "avatar_url": user.avatar_url
+        }
+    } 
