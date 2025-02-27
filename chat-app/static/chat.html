@@ -396,10 +396,10 @@
                 
                 console.log('发送消息:', message);
                 
-                // 先在本地显示消息，提供即时反馈
-                addMessageToChat(message);
+                // 不再在本地先显示消息，等待服务器广播
+                // addMessageToChat(message);
                 
-                // 然后发送到服务器
+                // 直接发送到服务器
                 ws.send(JSON.stringify(message));
                 messageInput.value = '';
             } catch (error) {
