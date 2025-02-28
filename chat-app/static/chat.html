@@ -19,6 +19,68 @@
             overflow: hidden;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
+        /* 服务器列表样式 */
+        .servers-sidebar {
+            width: 70px;
+            background-color: #202225;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 15px 0;
+            overflow-y: auto;
+        }
+        .server-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: border-radius 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #36393f;
+            color: white;
+            font-weight: bold;
+        }
+        .server-icon:hover {
+            border-radius: 30%;
+        }
+        .server-icon.active {
+            border-radius: 30%;
+        }
+        .server-icon img {
+            width: 100%;
+            height: 100%;
+            border-radius: inherit;
+            object-fit: cover;
+        }
+        .add-server {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background-color: #36393f;
+            color: #43b581;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            margin-bottom: 10px;
+            transition: background-color 0.3s;
+        }
+        .add-server:hover {
+            background-color: #43b581;
+            color: white;
+        }
+        /* 分隔线 */
+        .server-divider {
+            width: 32px;
+            height: 2px;
+            background-color: #36393f;
+            margin: 10px 0;
+        }
+        
         .sidebar {
             width: 250px;
             background-color: #2c3e50;
@@ -165,10 +227,83 @@
             text-align: center;
             margin: 10px 0;
         }
+        
+        /* 模态窗口样式 */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        .modal-content {
+            background-color: white;
+            margin: 10% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 400px;
+            max-width: 90%;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .modal-header h2 {
+            margin: 0;
+            color: #333;
+        }
+        .close-btn {
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            color: #aaa;
+        }
+        .close-btn:hover {
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        .form-group input, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .form-group textarea {
+            height: 100px;
+            resize: vertical;
+        }
+        .form-actions {
+            text-align: right;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- 服务器列表侧边栏 -->
+        <div class="servers-sidebar">
+            <div class="add-server" onclick="openCreateServerModal()">+</div>
+            <div class="server-divider"></div>
+            <div id="serversList">
+                <!-- 服务器列表将通过JavaScript动态添加 -->
+            </div>
+        </div>
+        
         <div class="sidebar">
             <div class="user-info">
                 <div class="avatar-container">
@@ -196,56 +331,318 @@
         </div>
     </div>
     
+    <!-- 创建服务器模态窗口 -->
+    <div id="createServerModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>创建新服务器</h2>
+                <span class="close-btn" onclick="closeCreateServerModal()">&times;</span>
+            </div>
+            <div class="form-group">
+                <label for="serverName">服务器名称</label>
+                <input type="text" id="serverName" placeholder="输入服务器名称" required>
+            </div>
+            <div class="form-group">
+                <label for="serverDescription">服务器描述（可选）</label>
+                <textarea id="serverDescription" placeholder="输入服务器描述"></textarea>
+            </div>
+            <div class="form-actions">
+                <button onclick="createServer()">创建服务器</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
         // 获取当前用户信息
         let currentUser = null;
+        let currentServerId = null;
+        
+        // 获取DOM元素
+        let messagesDiv = document.getElementById('messages');
+        let messageInput = document.getElementById('messageInput');
+        let usersList = document.getElementById('usersList');
+        let serversList = document.getElementById('serversList');
+        let createServerModal = document.getElementById('createServerModal');
+        let sendButton = document.querySelector('button');
         
         // 获取当前主机地址
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // 添加会话ID到WebSocket URL
-        const getCookie = (name) => {
+        // 获取cookie中的session_id
+        function getCookie(name) {
             const value = `; ${document.cookie}`;
             const parts = value.split(`; ${name}=`);
             if (parts.length === 2) return parts.pop().split(';').shift();
             return null;
-        };
-        const sessionId = getCookie('session_id');
-        const wsUrl = `${protocol}//${window.location.host}/ws/chat${sessionId ? '?session_id=' + sessionId : ''}`;
+        }
         
-        console.log('正在连接WebSocket:', wsUrl);
+        const session_id = getCookie('session_id');
+        // 设置WebSocket URL
+        let wsUrl = `${protocol}//${window.location.host}/ws/chat${session_id ? '?session_id=' + session_id : ''}`;
         
         let ws = null;
-        let messagesDiv = document.getElementById('messages');
-        let messageInput = document.getElementById('messageInput');
-        let usersList = document.getElementById('usersList');
+        
+        // 页面加载完成后执行
+        document.addEventListener('DOMContentLoaded', function() {
+            // 重新获取DOM元素，确保它们已加载
+            messagesDiv = document.getElementById('messages');
+            messageInput = document.getElementById('messageInput');
+            usersList = document.getElementById('usersList');
+            serversList = document.getElementById('serversList');
+            createServerModal = document.getElementById('createServerModal');
+            sendButton = document.querySelector('button');
+            
+            if (!session_id) {
+                addStatusMessage('未登录，请先登录后再聊天', 'error');
+                messageInput.disabled = true;
+                sendButton.disabled = true;
+                setTimeout(() => {
+                    window.location.href = '/login';
+                }, 2000);
+                return;
+            }
+            
+            // 先获取当前用户信息
+            loadCurrentUser().then(() => {
+                // 连接WebSocket
+                connectWebSocket();
+                
+                // 加载服务器列表
+                loadServerList();
+                
+                // 绑定发送消息事件
+                sendButton.addEventListener('click', sendMessage);
+                messageInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        sendMessage();
+                    }
+                });
+                
+                // 自动聚焦到消息输入框
+                messageInput.focus();
+            }).catch(error => {
+                console.error('获取用户信息失败:', error);
+                addStatusMessage('获取用户信息失败，请刷新页面重试', 'error');
+            });
+        });
+        
+        // 加载服务器列表
+        async function loadServerList() {
+            try {
+                // 检查是否有session_id
+                if (!session_id) {
+                    console.error('未登录，无法加载服务器列表');
+                    addStatusMessage('未登录，请先登录后再聊天', 'error');
+                    return;
+                }
+                
+                const response = await fetch('/api/servers');
+                if (response.status === 401) {
+                    console.error('未授权，可能需要重新登录');
+                    addStatusMessage('会话已过期，请重新登录', 'error');
+                    setTimeout(() => {
+                        window.location.href = '/login';
+                    }, 2000);
+                    return;
+                }
+                
+                if (!response.ok) {
+                    throw new Error('获取服务器列表失败');
+                }
+                
+                const servers = await response.json();
+                const serverListDiv = document.getElementById('serversList');
+                serverListDiv.innerHTML = '';
+                
+                servers.forEach(server => {
+                    const serverItem = document.createElement('div');
+                    serverItem.className = 'server-icon';
+                    serverItem.id = `server-${server.id}`;
+                    serverItem.setAttribute('data-server-id', server.id);
+                    serverItem.setAttribute('data-name', server.name);
+                    serverItem.innerHTML = `
+                        <div class="server-avatar">${server.name.charAt(0)}</div>
+                        <div class="server-tooltip">${server.name}</div>
+                    `;
+                    
+                    // 添加点击事件
+                    serverItem.addEventListener('click', function() {
+                        selectServer(server.id);
+                    });
+                    
+                    serverListDiv.appendChild(serverItem);
+                });
+                
+                // 如果有服务器，默认选择第一个
+                if (servers.length > 0) {
+                    selectServer(servers[0].id);
+                } else {
+                    addStatusMessage('您还没有加入任何服务器，请创建或加入一个服务器');
+                }
+            } catch (error) {
+                console.error('加载服务器列表错误:', error);
+                addStatusMessage('加载服务器列表失败', 'error');
+            }
+        }
         
         // 加载当前用户信息
         async function loadCurrentUser() {
             try {
                 const response = await fetch('/api/users/me');
                 
-                if (response.ok) {
-                    currentUser = await response.json();
-                    document.getElementById('currentUsername').textContent = currentUser.display_name || currentUser.username;
-                    document.getElementById('currentUserEmail').textContent = currentUser.email;
-                    
-                    // 显示头像
-                    if (currentUser.avatar_url) {
-                        document.getElementById('currentUserAvatar').src = currentUser.avatar_url;
-                    }
-                    
-                    // 加载用户列表
-                    loadUsers();
-                    
-                    // 连接WebSocket
-                    connectWebSocket();
-                } else {
-                    // 未登录，重定向到登录页面
-                    window.location.href = '/login';
+                if (response.status === 401) {
+                    console.error('未授权，需要重新登录');
+                    addStatusMessage('会话已过期，请重新登录', 'error');
+                    setTimeout(() => {
+                        window.location.href = '/login';
+                    }, 2000);
+                    throw new Error('未授权');
                 }
+                
+                if (!response.ok) {
+                    throw new Error('获取用户信息失败');
+                }
+                
+                currentUser = await response.json();
+                console.log('当前用户信息:', currentUser);
+                
+                document.getElementById('currentUsername').textContent = currentUser.display_name || currentUser.username;
+                document.getElementById('currentUserEmail').textContent = currentUser.email;
+                
+                // 显示头像
+                if (currentUser.avatar_url) {
+                    document.getElementById('currentUserAvatar').src = currentUser.avatar_url;
+                }
+                
+                // 加载用户列表
+                await loadUsers();
+                
+                return currentUser;
             } catch (error) {
                 console.error('获取用户信息错误:', error);
-                addStatusMessage('获取用户信息失败，请刷新页面重试');
+                addStatusMessage('获取用户信息失败，请刷新页面重试', 'error');
+                throw error;
+            }
+        }
+        
+        // 选择服务器
+        function selectServer(serverId) {
+            // 更新当前选中的服务器
+            currentServerId = serverId;
+            
+            // 更新UI，标记当前选中的服务器
+            const serverIcons = document.querySelectorAll('.server-icon');
+            serverIcons.forEach(icon => {
+                if (icon.getAttribute('data-server-id') == serverId) {
+                    icon.classList.add('active');
+                } else {
+                    icon.classList.remove('active');
+                }
+            });
+            
+            // 更新聊天区域标题
+            updateChatHeader(serverId);
+            
+            // 清空当前消息区域
+            messagesDiv.innerHTML = '';
+            
+            // 加载该服务器的历史消息
+            loadServerMessages(serverId);
+            
+            // 添加状态消息
+            addStatusMessage(`已切换到服务器 ID: ${serverId}`);
+            
+            console.log(`已切换到服务器: ${serverId}`);
+        }
+        
+        // 更新聊天区域标题
+        async function updateChatHeader(serverId) {
+            try {
+                const response = await fetch(`/api/servers/${serverId}`);
+                
+                if (response.ok) {
+                    const server = await response.json();
+                    document.querySelector('.chat-header').textContent = server.name;
+                }
+            } catch (error) {
+                console.error('获取服务器详情错误:', error);
+            }
+        }
+        
+        // 加载服务器历史消息的函数
+        async function loadServerMessages(serverId) {
+            try {
+                // 添加加载中提示
+                addStatusMessage('正在加载消息...');
+                
+                const response = await fetch(`/api/servers/${serverId}/messages`);
+                if (!response.ok) {
+                    throw new Error('获取消息失败');
+                }
+                
+                const messages = await response.json();
+                
+                // 添加历史消息
+                messages.forEach(msg => {
+                    const messageElement = createMessageElement(msg.content, msg.sender);
+                    messagesDiv.appendChild(messageElement);
+                });
+                
+                // 滚动到底部
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                
+            } catch (error) {
+                console.error('加载消息出错:', error);
+                addStatusMessage('加载消息失败，请刷新页面重试');
+            }
+        }
+        
+        // 打开创建服务器模态窗口
+        function openCreateServerModal() {
+            createServerModal.style.display = 'block';
+        }
+        
+        // 关闭创建服务器模态窗口
+        function closeCreateServerModal() {
+            createServerModal.style.display = 'none';
+            // 清空表单
+            document.getElementById('serverName').value = '';
+            document.getElementById('serverDescription').value = '';
+        }
+        
+        // 创建服务器
+        async function createServer() {
+            const name = document.getElementById('serverName').value.trim();
+            const description = document.getElementById('serverDescription').value.trim();
+            
+            if (!name) {
+                alert('请输入服务器名称');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/servers', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        name,
+                        description
+                    })
+                });
+                
+                if (response.ok) {
+                    const server = await response.json();
+                    addServerToList(server);
+                    selectServer(server.id);
+                    closeCreateServerModal();
+                } else {
+                    const error = await response.json();
+                    alert(`创建服务器失败: ${error.detail || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('创建服务器错误:', error);
+                alert('创建服务器失败，请稍后重试');
             }
         }
         
@@ -279,6 +676,7 @@
         // 连接WebSocket
         function connectWebSocket() {
             console.log('尝试连接WebSocket...');
+            console.log('WebSocket URL:', wsUrl);
             
             // 如果已经有连接，先关闭
             if (ws) {
@@ -288,152 +686,186 @@
                     console.error('关闭旧连接错误:', e);
                 }
             }
-            
+
             ws = new WebSocket(wsUrl);
-            
+
             // 连接建立时
             ws.onopen = function() {
                 console.log('WebSocket连接已建立');
                 addStatusMessage('已连接到聊天服务器');
             };
-            
+
             // 连接关闭时
-            ws.onclose = function(event) {
-                console.log('WebSocket连接已关闭', event.code, event.reason);
-                addStatusMessage('与服务器的连接已断开，正在尝试重新连接...');
+            ws.onclose = function() {
+                console.log('WebSocket连接已关闭');
+                addStatusMessage('与聊天服务器的连接已断开');
                 
-                // 5秒后尝试重新连接
-                setTimeout(connectWebSocket, 5000);
+                // 尝试重新连接
+                setTimeout(connectWebSocket, 3000);
             };
-            
+
             // 连接错误时
             ws.onerror = function(error) {
-                console.error('WebSocket连接错误:', error);
-                addStatusMessage('连接错误，将尝试重新连接');
+                console.error('WebSocket错误:', error);
+                addStatusMessage('连接错误，请刷新页面重试');
             };
             
             // 收到消息时
             ws.onmessage = function(event) {
                 console.log('收到消息:', event.data);
                 try {
-                    let data = JSON.parse(event.data);
-                    addMessageToChat(data);
-                } catch (e) {
-                    console.error('解析消息错误:', e);
-                    addStatusMessage('收到无效消息');
+                    const message = JSON.parse(event.data);
+                    console.log('解析后的消息:', message);
+                    
+                    // 检查消息是否属于当前选中的服务器
+                    // 如果消息没有server_id，则视为全局消息，所有服务器都显示
+                    // 如果消息有server_id，则只在对应的服务器中显示
+                    if (message.server_id && message.server_id != currentServerId) {
+                        console.log(`消息属于服务器 ${message.server_id}，当前选中的服务器是 ${currentServerId}，不显示`);
+                        // 这里可以添加未读消息提示的代码
+                        return;
+                    }
+                    
+                    // 添加消息到聊天区域
+                    addMessage(message);
+                } catch (error) {
+                    console.error('解析消息错误:', error);
                 }
             };
         }
         
         // 添加消息到聊天区域
-        function addMessageToChat(data) {
-            let messageElement = document.createElement('div');
-            messageElement.className = 'message';
+        function addMessage(message) {
+            console.log('添加消息到聊天区域:', message);
             
-            // 判断是否是当前用户发送的消息
-            if (data.sender === currentUser.username) {
-                messageElement.className += ' self';  // 修改为 'self' 以匹配CSS样式
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            
+            // 判断是否是自己发送的消息
+            if (currentUser && message.user_id === currentUser.id) {
+                messageDiv.classList.add('self');
             } else {
-                messageElement.className += ' other';  // 添加 'other' 类名以匹配CSS样式
+                messageDiv.classList.add('other');
             }
             
-            // 发送者名称
-            let senderElement = document.createElement('div');
-            senderElement.className = 'sender';
-            senderElement.textContent = data.sender;
+            const senderDiv = document.createElement('div');
+            senderDiv.className = 'sender';
+            senderDiv.textContent = message.sender;
             
-            // 消息内容
-            let contentElement = document.createElement('div');
-            contentElement.textContent = data.content;
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'content';
+            contentDiv.textContent = message.content;
             
-            // 时间
-            let timeElement = document.createElement('div');
-            timeElement.className = 'time';
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'time';
             
-            // 如果有时间戳，则显示时间
-            if (data.created_at) {
-                let date = new Date(data.created_at);
-                timeElement.textContent = formatTime(date);
-            } else {
-                let date = new Date();
-                timeElement.textContent = formatTime(date);
+            // 格式化时间
+            let timeText = '';
+            try {
+                const messageTime = new Date(message.timestamp || message.created_at);
+                const hours = messageTime.getHours().toString().padStart(2, '0');
+                const minutes = messageTime.getMinutes().toString().padStart(2, '0');
+                timeText = `${hours}:${minutes}`;
+            } catch (error) {
+                console.error('格式化时间错误:', error);
+                timeText = '未知时间';
             }
+            timeDiv.textContent = timeText;
             
-            // 组装消息
-            messageElement.appendChild(senderElement);
-            messageElement.appendChild(contentElement);
-            messageElement.appendChild(timeElement);
+            messageDiv.appendChild(senderDiv);
+            messageDiv.appendChild(contentDiv);
+            messageDiv.appendChild(timeDiv);
             
-            // 添加到聊天区域
-            messagesDiv.appendChild(messageElement);
+            messagesDiv.appendChild(messageDiv);
             
             // 滚动到底部
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
         
-        // 添加状态消息
-        function addStatusMessage(text) {
-            let statusElement = document.createElement('div');
-            statusElement.className = 'status';
-            statusElement.textContent = text;
-            messagesDiv.appendChild(statusElement);
-            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        // 创建消息元素
+        function createMessageElement(content, sender, timestamp) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            
+            // 判断是否是自己发送的消息
+            if (currentUser && sender === currentUser.username) {
+                messageDiv.classList.add('self');
+            } else {
+                messageDiv.classList.add('other');
+            }
+            
+            const senderDiv = document.createElement('div');
+            senderDiv.className = 'sender';
+            senderDiv.textContent = sender;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'content';
+            contentDiv.textContent = content;
+            
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'time';
+            
+            // 格式化时间
+            let timeText = '';
+            if (timestamp) {
+                try {
+                    const messageTime = new Date(timestamp);
+                    const hours = messageTime.getHours().toString().padStart(2, '0');
+                    const minutes = messageTime.getMinutes().toString().padStart(2, '0');
+                    timeText = `${hours}:${minutes}`;
+                } catch (error) {
+                    console.error('格式化时间错误:', error);
+                    timeText = '未知时间';
+                }
+            } else {
+                const now = new Date();
+                const hours = now.getHours().toString().padStart(2, '0');
+                const minutes = now.getMinutes().toString().padStart(2, '0');
+                timeText = `${hours}:${minutes}`;
+            }
+            timeDiv.textContent = timeText;
+            
+            messageDiv.appendChild(senderDiv);
+            messageDiv.appendChild(contentDiv);
+            messageDiv.appendChild(timeDiv);
+            
+            return messageDiv;
         }
         
-        // 格式化时间
-        function formatTime(date) {
-            let hours = date.getHours().toString().padStart(2, '0');
-            let minutes = date.getMinutes().toString().padStart(2, '0');
-            return `${hours}:${minutes}`;
+        // 添加状态消息
+        function addStatusMessage(text) {
+            const statusDiv = document.createElement('div');
+            statusDiv.className = 'status';
+            statusDiv.textContent = text;
+            
+            messagesDiv.appendChild(statusDiv);
+            
+            // 滚动到底部
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
         
         // 发送消息
         function sendMessage() {
             const content = messageInput.value.trim();
+            if (!content) return;
             
-            if (content === '') {
-                return; // 不发送空消息
-            }
-            
-            if (!ws) {
-                console.error('WebSocket未初始化');
-                addStatusMessage('未连接到服务器，请刷新页面重试');
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                addStatusMessage('未连接到聊天服务器，无法发送消息', 'error');
                 return;
             }
             
-            if (ws.readyState !== WebSocket.OPEN) {
-                console.error('WebSocket未连接，当前状态:', ws.readyState);
-                addStatusMessage('与服务器的连接已断开，正在尝试重新连接...');
-                // 尝试重新连接
-                connectWebSocket();
-                return;
-            }
+            // 创建消息对象
+            const message = {
+                content: content,
+                server_id: currentServerId
+            };
             
-            if (!currentUser) {
-                console.error('用户未登录');
-                addStatusMessage('您需要登录才能发送消息');
-                return;
-            }
+            // 发送消息
+            ws.send(JSON.stringify(message));
+            console.log('发送消息:', message);
             
-            try {
-                const message = {
-                    sender: currentUser.username,
-                    content: content,
-                    created_at: new Date().toISOString()
-                };
-                
-                console.log('发送消息:', message);
-                
-                // 不再在本地先显示消息，等待服务器广播
-                // addMessageToChat(message);
-                
-                // 直接发送到服务器
-                ws.send(JSON.stringify(message));
-                messageInput.value = '';
-            } catch (error) {
-                console.error('发送消息错误:', error);
-                addStatusMessage('发送消息失败: ' + error.message);
-            }
+            // 清空输入框
+            messageInput.value = '';
         }
         
         // 退出登录
@@ -441,18 +873,12 @@
             window.location.href = '/api/logout';
         }
         
-        // 按Enter键发送消息
-        messageInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                sendMessage();
+        // 点击模态窗口外部关闭模态窗口
+        window.onclick = function(event) {
+            if (event.target === createServerModal) {
+                closeCreateServerModal();
             }
-        });
-        
-        // 自动聚焦到消息输入框
-        messageInput.focus();
-        
-        // 加载用户信息
-        loadCurrentUser();
+        };
     </script>
 </body>
 </html> 
